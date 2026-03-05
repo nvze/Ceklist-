@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracker Harian</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .nav-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .nav-link:hover {
+            text-decoration: underline;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h2 { margin-top: 0; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .btn-check {
+            background-color: #e9ecef;
+            border: 2px solid #dee2e6;
+            padding: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            user-select: none;
+        }
+        .btn-check.active {
+            background-color: #28a745;
+            color: white;
+            border-color: #218838;
+        }
+        .info-panel {
+            text-align: center;
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .data-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .btn-action {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn-action:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <a href="https://nvze.github.io/dashboard/index.html" class="nav-link">← Kembali ke Dashboard</a>
+
+    <div class="card">
+        <h2>Ceklis Harian</h2>
+        <div class="info-panel" id="dayCounter">Hari ke-1</div>
+        <div class="grid">
+            <div class="btn-check" id="btn-wajib" onclick="toggleTask('bacaWajib')">Baca Wajib</div>
+            <div class="btn-check" id="btn-ringan" onclick="toggleTask('bacaRingan')">Baca Ringan</div>
+            <div class="btn-check" id="btn-dampak" onclick="toggleTask('tindakanBerdampak')">Tindakan Berdampak</div>
+            <div class="btn-check" id="btn-warming" onclick="toggleTask('warmingUp')">Warming Up</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Grafik Akumulasi Progress (%)</h2>
+        <canvas id="progressChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Backup Data</h2>
+        <p style="font-size: 14px; color: #666;">Gunakan fitur ini untuk menyimpan riwayat datamu menjadi file dan mengembalikannya jika kamu membuka web ini di perangkat lain.</p>
+        <div class="data-controls">
+            <button class="btn-action" onclick="exportData()">Export Data (.json)</button>
+            <input type="file" id="importFile" style="display: none;" accept=".json" onchange="importData(event)">
+            <button class="btn-action" onclick="document.getElementById('importFile').click()" style="background-color: #6c757d;">Import Data</button>
+        </div>
+    </div>
+
+    <script>
+        const tasks = ['bacaWajib', 'bacaRingan', 'tindakanBerdampak', 'warmingUp'];
+        const taskLabels = ['Baca Wajib', 'Baca Ringan', 'Tindakan Berdampak', 'Warming Up'];
+        let chartInstance = null;
+
+        // Mendapatkan format tanggal hari ini (YYYY-MM-DD)
+        function getTodayDate() {
+            const today = new Date();
+            return today.toISOString().split('T')[0];
+        }
+
+        // Inisialisasi Data
+        function initData() {
+            let data = JSON.parse(localStorage.getItem('trackerData'));
+            if (!data) {
+                data = {
+                    startDate: getTodayDate(),
+                    history: {}
+                };
+            }
+            const today = getTodayDate();
+            if (!data.history[today]) {
+                data.history[today] = { bacaWajib: false, bacaRingan: false, tindakanBerdampak: false, warmingUp: false };
+            }
+            localStorage.setItem('trackerData', JSON.stringify(data));
+            return data;
+        }
+
+        // Menghitung total hari berjalan
+        function calculateTotalDays(startDate) {
+            const start = new Date(startDate);
+            const today = new Date(getTodayDate());
+            const diffTime = Math.abs(today - start);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            return diffDays + 1; // Hari ke-1 dimulai di hari pertama
+        }
+
+        // Memperbarui UI Tombol berdasarkan data hari ini
+        function updateUI() {
+            const data = initData();
+            const today = getTodayDate();
+            const todayData = data.history[today];
+            const totalDays = calculateTotalDays(data.startDate);
+
+            document.getElementById('dayCounter').innerText = `Progres saat ini: Hari ke-${totalDays}`;
+
+            tasks.forEach((task, index) => {
+                const btnId = ['btn-wajib', 'btn-ringan', 'btn-dampak', 'btn-warming'][index];
+                const btn = document.getElementById(btnId);
+                if (todayData[task]) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            updateChart(data, totalDays);
+        }
+
+        // Aksi ketika tombol ditekan
+        function toggleTask(taskName) {
+            const data = initData();
+            const today = getTodayDate();
+            data.history[today][taskName] = !data.history[today][taskName];
+            localStorage.setItem('trackerData', JSON.stringify(data));
+            updateUI();
+        }
+
+        // Memperbarui Grafik Chart.js
+        function updateChart(data, totalDays) {
+            let completionCounts = { bacaWajib: 0, bacaRingan: 0, tindakanBerdampak: 0, warmingUp: 0 };
+            
+            // Hitung akumulasi
+            for (const date in data.history) {
+                tasks.forEach(task => {
+                    if (data.history[date][task]) completionCounts[task]++;
+                });
+            }
+
+            const percentages = tasks.map(task => {
+                return ((completionCounts[task] / totalDays) * 100).toFixed(1);
+            });
+
+            const ctx = document.getElementById('progressChart').getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: taskLabels,
+                    datasets: [{
+                        label: `Persentase Selesai (Total ${totalDays} Hari)`,
+                        data: percentages,
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.7)',
+                            'rgba(255, 206, 86, 0.7)',
+                            'rgba(255, 99, 132, 0.7)',
+                            'rgba(75, 192, 192, 0.7)'
+                        ],
+                        borderColor: [
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(75, 192, 192, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: {
+                                callback: function(value) { return value + "%" }
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let taskIdx = context.dataIndex;
+                                    let taskName = tasks[taskIdx];
+                                    let rawCount = completionCounts[taskName];
+                                    return `${context.raw}% (${rawCount} dari ${totalDays} hari)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Export Data JSON
+        function exportData() {
+            const data = localStorage.getItem('trackerData');
+            const blob = new Blob([data], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tracker_backup_${getTodayDate()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Import Data JSON
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsedData = JSON.parse(e.target.result);
+                    if (parsedData.startDate && parsedData.history) {
+                        localStorage.setItem('trackerData', JSON.stringify(parsedData));
+                        updateUI();
+                        alert("Data berhasil diimpor!");
+                    } else {
+                        alert("Format file tidak valid.");
+                    }
+                } catch (err) {
+                    alert("Gagal membaca file.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Jalankan saat pertama kali dibuka
+        window.onload = updateUI;
+    </script>
+</body>
+</html>
